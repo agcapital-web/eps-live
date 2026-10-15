@@ -18,9 +18,10 @@ def load(p, d):
 
 
 doc = load(SCREEN, {"rows": []})
-state = load(STATE, {"seen": [], "ema_day": "", "history": []})
+state = load(STATE, {"seen": [], "ema_day": "", "history": [], "pending": {}})
 seen = set(state["seen"])
-rows, log = eng.refresh(eng.to_rows(doc["rows"]), seen, days=2, progress=print)
+state.setdefault("pending", {})
+rows, log = eng.refresh(eng.to_rows(doc["rows"]), seen, days=2, progress=print, pending=state["pending"])
 now = dt.datetime.now(eng.IST)
 if log["ok"] and now.hour >= 16 and state.get("ema_day") != now.date().isoformat():
     log["errors"] += eng.refresh_ema_all(rows, progress=print)

@@ -127,6 +127,51 @@ def nse_filings(start, end):
     return out
 
 
+RESULT_RE = re.compile(r"financial results?|results? for the (quarter|period)", re.I)
+NOT_RESULT_RE = re.compile(r"to be held|will be held|intimation|prior notice|to consider|trading window|"
+                           r"newspaper|advertisement|schedule of|investor (meet|call)|earnings call|"
+                           r"conference call|transcript|audio|recording", re.I)
+
+
+def _items(xml):
+    for it in re.findall(r"<item>(.*?)</item>", xml, re.S):
+        g = lambda tag: html.unescape(re.sub(r"<!\[CDATA\[|\]\]>", "", (re.search(
+            rf"<{tag}>(.*?)</{tag}>", it, re.S) or [None, ""])[1])).strip()
+        yield {k: g(k) for k in ("title", "link", "description", "pubDate", "scripcode")}
+
+
+def bse_filings_rss():
+    """BSE's live corporate-announcements feed (rolling, roughly today's filings)."""
+    xml = get("https://www.bseindia.com/data/xml/announcements.xml") or ""
+    out = {}
+    for it in _items(xml.lstrip("﻿")):
+        code, desc = it["scripcode"], it["description"]
+        if not code or not RESULT_RE.search(desc) or NOT_RESULT_RE.search(desc):
+            continue
+        when = iso_when(it["pubDate"])
+        name = re.sub(r"\s*\(\d+\)\s*$", "", it["title"])
+        if code not in out or when > out[code]["when"]:
+            out[code] = {"bse": code, "name": name, "when": when}
+    return out
+
+
+def nse_filings_rss():
+    """NSE's live announcements feed; the symbol comes from the attachment's file name."""
+    xml = get("https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml") or ""
+    out = {}
+    for it in _items(xml):
+        desc = it["description"]
+        if not RESULT_RE.search(desc) or NOT_RESULT_RE.search(desc.split("|SUBJECT:")[0]):
+            continue
+        m = re.search(r"/corporate/([A-Z0-9&\-]+)_\d{8,}", it["link"])
+        if not m:
+            continue
+        sym, when = m.group(1), iso_when(it["pubDate"])
+        if sym not in out or when > out[sym]["when"]:
+            out[sym] = {"nse": sym, "name": it["title"], "when": when}
+    return out
+
+
 # ---------- 2. Screener ----------
 
 def num(s):
@@ -214,12 +259,26 @@ def now_utc():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def norm_name(n):
+    n = n.lower().replace("limited", "ltd").replace("&", "and")
+    return re.sub(r"[^a-z0-9]", "", n)[:14]
+
+
 def evaluate(ident, symbol, when, src):
-    p = screener_company(ident)
+    # ident may be a list of Screener ids to try in order (NSE symbol, cleaned symbol, BSE code)
+    p = None
+    for i in (ident if isinstance(ident, list) else [ident]):
+        p = screener_company(i)
+        if p:
+            break
     if not p or len(p["quarters"]) < 5:
         return None, "no Screener quarterly EPS"
     q = p["quarters"]
     (lbl, e0), (_, e1), (_, e4) = q[-1], q[-2], q[-5]
+    # Screener can lag a fresh filing: the latest quarter must have ended within ~80 days of it
+    qend = dt.datetime.strptime(lbl, "%b %Y").date().replace(day=28)
+    if (dt.date.fromisoformat(when[:10]) - qend).days > 80:
+        return None, "pending: Screener not updated yet"
     yoy, qoq = growth(e0, e4), growth(e0, e1)
     passes = (p["mcap"] or 0) >= MIN_MCAP and yoy is not None and qoq is not None \
         and yoy >= MIN_GROWTH and qoq >= MIN_GROWTH
@@ -255,34 +314,57 @@ def to_list(rows):
     return out
 
 
-def refresh(rows, seen=None, days=2, progress=lambda msg: None):
+def refresh(rows, seen=None, days=2, progress=lambda msg: None, pending=None):
     """Fold new filings into rows (dict keyed by symbol). `seen` is a set of
     'symbol|filing time' already evaluated, so each filing is read once."""
     seen = set() if seen is None else seen
+    pending = {} if pending is None else pending   # symbol -> [ident, when, src]
     end = dt.datetime.now(IST).date()
     start = end - dt.timedelta(days=days)
     log = {"started": now_utc(), "bse": 0, "nse": 0, "checked": 0, "added": [],
            "updated": [], "dropped": [], "errors": []}
 
-    filers, nse = {}, {}
+    filers, nse, bse = {}, {}, {}
     progress("Reading NSE filings")
-    try:
-        nse = nse_filings(start, end); log["nse"] = len(nse)
-        for s, r in nse.items():
-            filers[f"NSE:{s}"] = (s, r["when"], "NSE")
-    except Exception as e:
-        log["errors"].append(f"NSE: {e}")
+    for fn in (nse_filings_rss, lambda: nse_filings(start, end)):   # live feed first, API as fallback
+        try:
+            nse = fn(); break
+        except Exception as e:
+            log["errors"].append(f"NSE: {e}")
+    if nse:
+        log["errors"] = [e for e in log["errors"] if not e.startswith("NSE")]
+    log["nse"] = len(nse)
+    by_name = {}
+    for s, r in nse.items():
+        ids = [s] + ([s.rstrip("0123456789")] if s.rstrip("0123456789") not in ("", s) else [])
+        filers[f"NSE:{ids[-1]}"] = (ids, r["when"], "NSE")   # cleaned symbol matches existing rows
+        by_name[norm_name(r["name"])] = f"NSE:{ids[-1]}"
     progress("Reading BSE filings")
+    for fn in (bse_filings_rss, lambda: bse_filings(start, end)):
+        try:
+            bse = fn(); break
+        except Exception as e:
+            log["errors"].append(f"BSE: {e}")
+    if bse:
+        log["errors"] = [e for e in log["errors"] if not e.startswith("BSE")]
+    log["bse"] = len(bse)
     try:
-        bse = bse_filings(start, end); log["bse"] = len(bse)
-        nse_names = {r["name"].lower()[:12] for r in nse.values()}
         for c, r in bse.items():
-            if r["name"].lower()[:12] in nse_names:
-                continue  # same company already found on NSE
-            filers.setdefault(f"BSE:{c}", (c, r["when"], "BSE"))
+            k = by_name.get(norm_name(r["name"]))
+            if k:   # same company filed on NSE: keep its BSE code as a fallback Screener id
+                filers[k][0].append(c)
+                continue
+            filers.setdefault(f"BSE:{c}", ([c], r["when"], "BSE"))
     except Exception as e:
         log["errors"].append(f"BSE: {e}")
 
+    # Filings whose quarter Screener hadn't loaded yet are retried for 3 days
+    cutoff = (dt.datetime.now(IST) - dt.timedelta(days=3)).isoformat()
+    for s, v in list(pending.items()):
+        if v[1] < cutoff:
+            del pending[s]
+        else:
+            filers.setdefault(s, tuple(v))
     todo = [(s, v) for s, v in filers.items() if f"{s}|{v[1]}" not in seen]
     for i, (sym, (ident, when, src)) in enumerate(todo, 1):
         progress(f"Checking {i}/{len(todo)}: {sym}")
@@ -296,6 +378,11 @@ def refresh(rows, seen=None, days=2, progress=lambda msg: None):
                 log["errors"].append("Stopped early: Screener not reachable; will retry next check")
                 break
             continue
+        if why.startswith("pending"):
+            pending[sym] = [ident, when, src]
+            log.setdefault("pending", []).append(sym)
+            continue
+        pending.pop(sym, None)
         seen.add(f"{sym}|{when}")
         if new:
             log["updated" if old else "added"].append(new["company"])
