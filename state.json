@@ -1,0 +1,1 @@
+{"seen": [], "ema_day": "", "history": [{"started": "2026-10-15T07:44:06Z", "bse": 0, "nse": 0, "checked": 0, "added": [], "updated": [], "dropped": [], "errors": ["NSE: https://www.nseindia.com/: HTTP Error 403: Forbidden", "BSE: https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w: HTTP Error 403: Forbidden"], "finished": "2026-10-15T07:44:26Z", "ok": false}]}
