@@ -1,0 +1,27 @@
+name: Check companies
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "NSE symbols or BSE codes, comma-separated (e.g. BHEL,LT,500325)"
+        required: true
+permissions:
+  contents: write
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Queue for the refresh loop (picked up within about a minute)
+        env:
+          SYMBOLS: ${{ github.event.inputs.symbols }}
+        run: |
+          git config user.name "eps-screen-bot"
+          git config user.email "eps-screen-bot@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            cur=$(tr -d ' \r\n' < check.txt 2>/dev/null || true)
+            echo "${cur:+$cur,}$(echo "$SYMBOLS" | tr -d ' ')" > check.txt
+            git add check.txt && git commit -qm "Queue check: $SYMBOLS" && git push -q origin HEAD:main && break
+            sleep 5
+          done

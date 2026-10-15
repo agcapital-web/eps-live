@@ -1,35 +1,49 @@
 name: Refresh EPS screen
+# A self-restarting loop: each run refreshes every 15 minutes (07:30-23:59 IST)
+# for ~5.5 hours, checks check.txt every minute for on-demand company checks,
+# then starts the next run. The schedule below only restarts the loop if it stops.
 on:
   schedule:
-    # Every 15 min, 07:30-23:59 IST (02:00-18:29 UTC), Mon-Sat. GitHub may run late under load.
-    - cron: "*/15 2-18 * * 1-6"
-  workflow_dispatch:
-    inputs:
-      symbols:
-        description: "Optional: NSE symbols or BSE codes to check now, comma-separated (e.g. BHEL,LT,500325)"
-        required: false
-        default: ""
+    - cron: "7 * * * *"
+  workflow_dispatch: {}
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: refresh
   cancel-in-progress: false
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Fetch new filings and update the screen
-        run: python run_refresh.py
-        env:
-          SYMBOLS: ${{ github.event.inputs.symbols }}
-      - name: Commit if anything changed
+      - name: Refresh loop
         run: |
           git config user.name "eps-screen-bot"
           git config user.email "eps-screen-bot@users.noreply.github.com"
-          git add docs/screen.json state.json
-          git diff --cached --quiet || (git commit -m "Refresh EPS screen $(date -u +%FT%TZ)" && git push)
+          end=$(( $(date +%s) + 330*60 ))
+          last=0
+          while [ $(date +%s) -lt $end ]; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            syms=$(tr -d ' \r\n' < check.txt 2>/dev/null || true)
+            hour=$(TZ=Asia/Kolkata date +%-H); min=$(TZ=Asia/Kolkata date +%-M)
+            in_hours=0; { [ $hour -gt 7 ] || { [ $hour -eq 7 ] && [ $min -ge 30 ]; }; } && in_hours=1
+            due=0; [ $in_hours -eq 1 ] && [ $(( $(date +%s) - last )) -ge 900 ] && due=1
+            if [ -n "$syms" ] || [ $due -eq 1 ]; then
+              SYMBOLS="$syms" python run_refresh.py || true
+              : > check.txt
+              git add docs/screen.json state.json check.txt
+              git diff --cached --quiet || { git commit -qm "Refresh EPS screen $(date -u +%FT%TZ)" && git push -q origin HEAD:main || true; }
+              [ $due -eq 1 ] && last=$(date +%s)
+            fi
+            sleep 60
+          done
+      - name: Start the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run refresh.yml --ref main -R ${{ github.repository }}

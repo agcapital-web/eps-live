@@ -6,15 +6,19 @@ on:
         description: "Quarter to look for, as Screener labels it"
         required: false
         default: "Sep 2026"
+      start_from:
+        description: "Optional: start at this NSE symbol (to resume a partial scan)"
+        required: false
+        default: ""
 permissions:
   contents: write
 concurrency:
-  group: refresh          # never runs at the same time as the 15-minute refresh
+  group: full-scan
   cancel-in-progress: false
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,9 +28,17 @@ jobs:
         run: python full_scan.py
         env:
           QUARTER: ${{ github.event.inputs.quarter }}
-      - name: Commit results
+          START_FROM: ${{ github.event.inputs.start_from }}
+      - name: Merge into the latest screen and push
         run: |
           git config user.name "eps-screen-bot"
           git config user.email "eps-screen-bot@users.noreply.github.com"
-          git add docs/screen.json
-          git diff --cached --quiet || (git commit -m "Full scan $(date -u +%FT%TZ)" && git pull --rebase && git push)
+          cp scan_out.json /tmp/scan_out.json
+          for i in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            python full_scan.py --merge /tmp/scan_out.json
+            git add docs/screen.json
+            git diff --cached --quiet && break
+            git commit -qm "Full scan $(date -u +%FT%TZ)" && git push -q origin HEAD:main && break
+            sleep 20
+          done

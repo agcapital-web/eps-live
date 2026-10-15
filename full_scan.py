@@ -58,30 +58,33 @@ def scan_one(sym):
             "updated_at": eng.now_utc()}, "pass"
 
 
-def main():
-    syms = universe()
-    print(f"{len(syms)} NSE symbols; looking for {QUARTER} results", flush=True)
-    found, fails, counts, errors = {}, set(), {}, []
-    streak = 0
+def scan(start_from=""):
+    syms = [s for s in universe() if s >= start_from]
+    print(f"{len(syms)} NSE symbols from '{start_from}'; looking for {QUARTER} results", flush=True)
+    found, fails, counts, errors = {}, [], {}, []
     for i, s in enumerate(syms, 1):
-        try:
-            row, why = scan_one(s)
-            streak = 0
-        except Exception as e:
-            row, why = None, "error"
-            errors.append(f"{s}: {e}")
-            streak += 1
-            if streak >= 15:
-                print("Screener stopped answering; ending scan early", flush=True)
+        for attempt in range(6):          # ride out Screener outages: wait and retry the same symbol
+            try:
+                row, why = scan_one(s)
                 break
+            except Exception as e:
+                row, why = None, "error"
+                if attempt == 5:
+                    errors.append(f"{s}: {e}")
+                else:
+                    time.sleep(60 * (attempt + 1))
         counts[why] = counts.get(why, 0) + 1
         if row:
             found[f"NSE:{s}"] = row
         elif why == "fails":
-            fails.add(f"NSE:{s}")
+            fails.append(f"NSE:{s}")
         if i % 100 == 0:
             print(f"{i}/{len(syms)} · {counts}", flush=True)
+    return {"nse": len(syms), "found": found, "fails": fails, "counts": counts, "errors": errors}
 
+
+def merge(res):
+    found, fails, counts, errors, syms = res["found"], res["fails"], res["counts"], res["errors"], range(res["nse"])
     doc = json.load(open(SCREEN, encoding="utf-8"))
     rows = eng.to_rows(doc["rows"])
     added, updated, dropped = [], [], []
@@ -108,4 +111,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # scan -> scan_out.json (slow); merge reads it into the latest docs/screen.json (fast)
+    if len(sys.argv) > 1 and sys.argv[1] == "--merge":
+        merge(json.load(open(sys.argv[2], encoding="utf-8")))
+    else:
+        json.dump(scan(os.environ.get("START_FROM", "")), open("scan_out.json", "w", encoding="utf-8"), ensure_ascii=False)
