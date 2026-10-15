@@ -3,7 +3,12 @@ on:
   schedule:
     # Every 15 min, 07:30-23:59 IST (02:00-18:29 UTC), Mon-Sat. GitHub may run late under load.
     - cron: "*/15 2-18 * * 1-6"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Optional: NSE symbols or BSE codes to check now, comma-separated (e.g. BHEL,LT,500325)"
+        required: false
+        default: ""
 permissions:
   contents: write
 concurrency:
@@ -20,6 +25,8 @@ jobs:
           python-version: "3.12"
       - name: Fetch new filings and update the screen
         run: python run_refresh.py
+        env:
+          SYMBOLS: ${{ github.event.inputs.symbols }}
       - name: Commit if anything changed
         run: |
           git config user.name "eps-screen-bot"

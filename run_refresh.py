@@ -22,6 +22,27 @@ state = load(STATE, {"seen": [], "ema_day": "", "history": [], "pending": {}})
 seen = set(state["seen"])
 state.setdefault("pending", {})
 rows, log = eng.refresh(eng.to_rows(doc["rows"]), seen, days=2, progress=print, pending=state["pending"])
+# Manual check: SYMBOLS="BHEL,LT" screens those companies now, filed or not (backfills missed results)
+manual = [s.strip().upper() for s in os.environ.get("SYMBOLS", "").split(",") if s.strip()]
+if manual:
+    when = dt.datetime.now(eng.IST).strftime("%Y-%m-%dT%H:%M:%S")
+    log["manual"] = []
+    for s in manual:
+        key = s if ":" in s else (f"BSE:{s}" if s.isdigit() else f"NSE:{s}")
+        ident = key.split(":", 1)[1]
+        try:
+            new, why = eng.evaluate(ident, key, when, "Manual")
+        except Exception as e:
+            new, why = None, f"error: {e}"
+        old = rows.get(key)
+        if new:
+            (log["updated"] if old else log["added"]).append(new["company"])
+            rows[key] = new
+            why = f"passes: YoY {new['yoy']:.0%}, QoQ {new['qoq']:.0%}, {new['quarter']}"
+        elif old and why.startswith("fails"):
+            log["dropped"].append(old["company"]); del rows[key]
+        log["manual"].append(f"{s}: {why}")
+        print(f"{s}: {why}")
 now = dt.datetime.now(eng.IST)
 if log["ok"] and now.hour >= 16 and state.get("ema_day") != now.date().isoformat():
     log["errors"] += eng.refresh_ema_all(rows, progress=print)
