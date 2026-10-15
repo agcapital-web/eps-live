@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EPS Growth Live</title>
+<script src="d3.min.js"></script>
+<style>
+:root{--bg:#f7f7f5;--panel:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--accent:#2f6fdf;--accent2:#c8642a;--ok:#1f8a4c;--warn:#b7791f;--bad:#c0392b;--bar:#d9d8d2;--shadow:0 6px 20px rgba(0,0,0,.08)}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1e1e1c;--fg:#ececea;--muted:#9c9b95;--line:#33332f;--accent:#6b9cf0;--accent2:#e08a55;--ok:#3fbf75;--warn:#e0a83a;--bad:#e5655a;--bar:#3a3a36;--shadow:0 6px 20px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 48px}
+h1{font:400 28px/1.2 Georgia,"Times New Roman",serif;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 12px}
+.live{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:12.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:16px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:2px}
+.live.run .dot{background:var(--accent);animation:pulse 1s infinite alternate}
+.live.err .dot{background:var(--bad)}
+.live.err .msg{color:var(--bad)}
+@keyframes pulse{from{opacity:1}to{opacity:.3}}
+.live button{margin-left:auto;font:inherit;padding:4px 12px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+.live button:disabled{opacity:.5;cursor:default}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr));gap:12px;margin-bottom:12px}
+.tile,.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.tile .l{color:var(--muted);font-size:12px}
+.tile .v{font:400 28px/1.2 Georgia,serif;margin:4px 0}
+.tile .n{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr));gap:12px;margin-bottom:12px}
+.card h2{font-size:16px;font-weight:600;margin:0 0 2px}
+.card>p{color:var(--muted);font-size:12px;margin:0 0 10px}
+.box{position:relative;min-height:120px}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow);padding:4px 8px;font-size:12px;display:none;z-index:5;white-space:nowrap}
+.ctl{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.ctl input,.ctl select{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.ctl input{flex:1;min-width:10rem}
+.tw{max-height:520px;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:var(--panel);text-align:right;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+th:first-child,td:first-child{text-align:left}
+td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+td:first-child{white-space:normal}
+td.t{text-align:left;color:var(--muted)}
+td a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+td a:hover{color:var(--accent)}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--bar);margin-left:6px;vertical-align:middle}
+.new{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;color:#fff;background:var(--ok);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle}
+.up{color:var(--ok)}.down{color:var(--bad)}
+tr.flash td{animation:flash 3s ease-out 2}
+@keyframes flash{from{background:color-mix(in srgb,var(--ok) 25%,transparent)}to{background:transparent}}
+.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow:auto;margin-top:8px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px}
+.chip i{font-style:normal;color:var(--muted);margin-left:6px}
+.log{font-size:12px;color:var(--muted)}
+.log li{margin:2px 0}
+.empty{color:var(--muted);padding:12px 0}
+@media(max-width:640px){.hide{display:none}h1{font-size:23px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>20%+ EPS growth screen: live</h1>
+<p class="sub" id="take">Loading…</p>
+<div class="live" id="live"><span class="dot"></span><span class="msg" id="st">Connecting…</span><span id="last"></span><span id="next"></span><button id="now" hidden>Check now</button><button id="notif" hidden>Turn on alerts</button></div>
+
+<div class="tiles">
+ <div class="tile"><div class="l">Companies passing</div><div class="v" id="k-n">—</div><div class="n">Mcap above ₹2,000 Cr</div></div>
+ <div class="tile"><div class="l">New in last 24 h</div><div class="v" id="k-new">—</div><div class="n" id="k-new-n">Filed since yesterday</div></div>
+ <div class="tile"><div class="l">Median YoY EPS growth</div><div class="v" id="k-yoy">—</div><div class="n">Latest quarter vs year ago</div></div>
+ <div class="tile"><div class="l">Median QoQ EPS growth</div><div class="v" id="k-qoq">—</div><div class="n">Latest quarter vs prior</div></div>
+ <div class="tile"><div class="l">Above 21 EMA</div><div class="v" id="k-ema">—</div><div class="n" id="k-ema-n">Share of companies</div></div>
+</div>
+
+<div class="card" style="margin-bottom:12px">
+ <h2>Latest results</h2><p>Companies entering or re-qualifying for the screen, newest filing first. NEW = filed in the last 24 hours.</p>
+ <div class="tw" style="max-height:380px"><table id="feed"><thead><tr><th>Company</th><th>Filed</th><th class="hide">Quarter</th><th>YoY</th><th>QoQ</th><th class="hide">EPS</th><th>21 EMA</th><th class="hide">Source</th></tr></thead><tbody></tbody></table></div>
+</div>
+
+<div class="grid">
+ <div class="card"><h2>Top 15 by YoY EPS growth</h2><p>Latest-quarter EPS over the same quarter last year.</p><div class="box" id="c-top"></div></div>
+ <div class="card"><h2>YoY vs QoQ growth</h2><p>Each dot is a company; both axes log scale. Hover for detail.</p><div class="box" id="c-sc" style="min-height:300px"></div></div>
+</div>
+<div class="grid">
+ <div class="card"><h2>Growth distribution</h2><p>Companies by YoY EPS growth band. Click a band to list its companies.</p>
+  <div class="ctl"><select id="bf"><option value="above">Above 21 EMA only</option><option value="all">All companies</option></select></div>
+  <div class="box" id="c-h"></div><div id="band-list"></div></div>
+ <div class="card"><h2>Refresh log</h2><p>Latest checks of BSE and NSE filings.</p><ul class="log" id="log"></ul></div>
+</div>
+
+<div class="card">
+ <h2>All companies</h2><p>Click a header to sort; click a name to open it on Screener. EPS in ₹.</p>
+ <div class="ctl"><input id="q" type="search" placeholder="Search company"><select id="ef"><option value="">Any vs 21 EMA</option><option value="above">Above 21 EMA</option><option value="below">Below 21 EMA</option></select><select id="qs"><option value="">All quarters</option></select></div>
+ <div class="tw"><table id="tbl"><thead><tr>
+  <th data-k="company">Company</th><th data-k="quarter" class="hide">Quarter</th><th data-k="yoy">YoY</th><th data-k="qoq">QoQ</th><th data-k="eps_latest">EPS latest</th><th data-k="above_ema21">21 EMA</th><th data-k="mcap_cr" class="hide">Mcap ₹ Cr</th><th data-k="result_date" class="hide">Filed</th><th data-k="eps_prev" class="hide">EPS prior Q</th><th data-k="eps_yearago" class="hide">EPS yr ago</th>
+ </tr></thead><tbody></tbody></table></div>
+</div>
+</div>
+
+<script>
+const pct = d3.format(',.0%'), num = d3.format(',.2f'), cnt = d3.format(',');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let rows = [], status = {}, known = null, sortK = 'yoy', sortD = -1, selBand = null;
+
+const screenerUrl = r => {
+  const s = (r.symbol || '').split(':')[1];
+  return s ? `https://www.screener.in/company/${encodeURIComponent(s)}/${r.statement === 'Consolidated' ? 'consolidated/' : ''}` : null;
+};
+// Filing dates are IST calendar days: NEW = filed today or yesterday (IST)
+const isNew = r => !!r.result_date && r.result_date >= new Date(Date.now() - 864e5 + 5.5 * 36e5).toISOString().slice(0, 10);
+const emaText = r => r.above_ema21 === '' ? '—' : r.above_ema21 === '1' ? 'Above' : 'Below';
+const ago = iso => { if (!iso) return ''; const m = (Date.now() - new Date(iso)) / 6e4;
+  return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+
+// ---------- tooltip + chart helpers ----------
+const tip = document.createElement('div'); tip.className = 'tip';
+function showTip(box, ev, text) {
+  box.appendChild(tip); tip.textContent = text; tip.style.display = 'block';
+  const b = box.getBoundingClientRect();
+  tip.style.left = Math.max(0, Math.min(ev.clientX - b.left + 10, b.width - tip.offsetWidth - 4)) + 'px';
+  tip.style.top = (ev.clientY - b.top + 12) + 'px';
+}
+const hideTip = () => tip.style.display = 'none';
+function svg(box, h) {
+  box.querySelectorAll('svg').forEach(s => s.remove());
+  const w = box.clientWidth || 400;
+  return { w, s: d3.select(box).append('svg').attr('width', '100%').attr('height', h).attr('viewBox', `0 0 ${w} ${h}`) };
+}
+function hbar(box, data, lab, val, fmt, color, click, sel) {
+  const h = data.length * 24 + 8, { w, s } = svg(box, h); box.style.minHeight = h + 'px';
+  const L = Math.min(Math.max(70, d3.max(data, d => Math.min(lab(d).length, 38) * 6.6) + 14), w * .5), R = 56;
+  const x = d3.scaleLinear([0, d3.max(data, val) || 1], [L, w - R]);
+  data.forEach((d, i) => {
+    const y = i * 24 + 4, g = s.append('g'), t = lab(d);
+    g.append('text').attr('x', L - 6).attr('y', y + 13).attr('text-anchor', 'end').attr('font-size', 11).attr('fill', 'currentColor').text(t.length > 38 ? t.slice(0, 36) + '…' : t);
+    g.append('rect').attr('x', L).attr('y', y + 2).attr('height', 16).attr('rx', 4).attr('width', Math.max(2, x(val(d)) - L)).attr('fill', color)
+      .attr('stroke', sel === t ? 'currentColor' : null).attr('stroke-width', 2);
+    g.append('text').attr('x', x(val(d)) + 4).attr('y', y + 14).attr('font-size', 11).attr('fill', 'currentColor').text(fmt(val(d)));
+    g.on('mousemove', ev => showTip(box, ev, `${t}: ${fmt(val(d))}`)).on('mouseleave', hideTip);
+    if (click) g.style('cursor', 'pointer').on('click', () => click(d));
+  });
+}
+
+// ---------- drawing ----------
+function drawKpis() {
+  const n = rows.length, nw = rows.filter(isNew), ab = rows.filter(r => r.above_ema21 === '1').length, ema = rows.filter(r => r.above_ema21 !== '').length;
+  document.getElementById('k-n').textContent = cnt(n);
+  document.getElementById('k-new').textContent = cnt(nw.length);
+  document.getElementById('k-new-n').textContent = nw.length ? nw.slice(0, 3).map(r => r.company).join(', ') : 'Filed since yesterday';
+  document.getElementById('k-yoy').textContent = n ? pct(d3.median(rows, r => r.yoy)) : '—';
+  document.getElementById('k-qoq').textContent = n ? pct(d3.median(rows, r => r.qoq)) : '—';
+  document.getElementById('k-ema').textContent = ema ? pct(ab / ema) : '—';
+  document.getElementById('k-ema-n').textContent = `${ab} of ${ema} with price data`;
+  document.getElementById('take').textContent = n
+    ? `${cnt(n)} companies above ₹2,000 Cr grew EPS 20%+ both year-on-year and quarter-on-quarter; ${nw.length} joined or re-qualified in the last 24 hours.`
+    : 'No companies in the screen yet.';
+}
+function nameCell(tr, r) {
+  const td = tr.append('td'), u = screenerUrl(r);
+  (u ? td.append('a').attr('href', u).attr('target', '_blank').attr('rel', 'noopener') : td.append('span')).text(r.company);
+  if (isNew(r)) td.append('span').attr('class', 'new').text('NEW');
+}
+function drawFeed(fresh) {
+  const fr = rows.filter(r => r.result_date).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '') || b.yoy - a.yoy).slice(0, 30);
+  const tb = d3.select('#feed tbody'); tb.selectAll('tr').remove();
+  if (!fr.length) { tb.append('tr').append('td').attr('colspan', 8).attr('class', 'empty').text('No new filings captured yet. The first check fills this; filings appear within about 15–30 minutes.'); return; }
+  fr.forEach(r => {
+    const tr = tb.append('tr').classed('flash', fresh.has(r.symbol || r.company));
+    nameCell(tr, r);
+    tr.append('td').attr('class', 't').text(r.result_date);
+    tr.append('td').attr('class', 't hide').text(r.quarter);
+    tr.append('td').attr('class', 'up').text(pct(r.yoy));
+    tr.append('td').attr('class', 'up').text(pct(r.qoq));
+    tr.append('td').attr('class', 'hide').text(num(r.eps_latest));
+    tr.append('td').attr('class', r.above_ema21 === '1' ? 'up' : r.above_ema21 === '0' ? 'down' : '').text(emaText(r));
+    tr.append('td').attr('class', 't hide').text(r.exchange_src);
+  });
+}
+function drawTop() {
+  const top = [...rows].sort((a, b) => b.yoy - a.yoy).slice(0, 15);
+  if (top.length) hbar(document.getElementById('c-top'), top, r => r.company, r => r.yoy, pct, css('--accent'));
+}
+function drawScatter() {
+  const box = document.getElementById('c-sc'), H = 300, m = { l: 48, r: 12, t: 10, b: 34 }, { w, s } = svg(box, H);
+  if (!rows.length) return;
+  const x = d3.scaleLog([0.2, d3.max(rows, r => r.qoq) * 1.2], [m.l, w - m.r]).clamp(true);
+  const y = d3.scaleLog([0.2, d3.max(rows, r => r.yoy) * 1.2], [H - m.b, m.t]).clamp(true);
+  const style = g => g.selectAll('text').attr('fill', 'currentColor').style('font-size', '11px');
+  s.append('g').attr('transform', `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(4, '~%')).call(style);
+  s.append('g').attr('transform', `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4, '~%')).call(style);
+  s.selectAll('.domain,.tick line').attr('stroke', css('--line'));
+  s.append('text').attr('x', w - m.r).attr('y', H - 2).attr('text-anchor', 'end').attr('font-size', 11).attr('fill', 'currentColor').text('QoQ growth →');
+  s.append('text').attr('x', 4).attr('y', 10).attr('font-size', 11).attr('fill', 'currentColor').text('YoY ↑');
+  s.selectAll('circle').data(rows).join('circle').attr('cx', r => x(r.qoq)).attr('cy', r => y(r.yoy)).attr('r', r => isNew(r) ? 6 : 4)
+    .attr('fill', r => isNew(r) ? css('--ok') : css('--accent')).attr('fill-opacity', .6)
+    .on('mousemove', (ev, r) => showTip(box, ev, `${r.company}: YoY ${pct(r.yoy)}, QoQ ${pct(r.qoq)}`)).on('mouseleave', hideTip);
+}
+function drawBands() {
+  const B = [['20–50%', .2, .5], ['50–100%', .5, 1], ['100–300%', 1, 3], ['300%+', 3, Infinity]];
+  const bands = B.map(([band, lo, hi]) => { const m = rows.filter(r => r.yoy >= lo && r.yoy < hi).sort((a, b) => b.yoy - a.yoy); return { band, n: m.length, m }; });
+  if (!selBand) selBand = bands[0].band;
+  const box = document.getElementById('c-h');
+  hbar(box, bands, d => d.band, d => d.n, cnt, css('--accent2'), d => { selBand = d.band; drawBands(); }, selBand);
+  const b = bands.find(d => d.band === selBand), only = document.getElementById('bf').value === 'above';
+  const items = b.m.filter(r => !only || r.above_ema21 === '1'), el = document.getElementById('band-list'); el.textContent = '';
+  const hd = document.createElement('div'); hd.className = 'log';
+  hd.textContent = `${b.band} YoY: ${b.m.filter(r => r.above_ema21 === '1').length} of ${b.n} above 21 EMA`; el.appendChild(hd);
+  const c = document.createElement('div'); c.className = 'chips';
+  items.forEach(r => { const sp = document.createElement('span'); sp.className = 'chip'; sp.textContent = r.company;
+    const i = document.createElement('i'); i.textContent = pct(r.yoy); sp.appendChild(i); c.appendChild(sp); });
+  el.appendChild(c);
+}
+function drawTable() {
+  const ev = document.getElementById('ef').value, qv = document.getElementById('qs').value, s = document.getElementById('q').value.toLowerCase();
+  const r = rows.filter(x => (!qv || x.quarter === qv) && (!ev || (ev === 'above' ? x.above_ema21 === '1' : x.above_ema21 === '0')) && (!s || x.company.toLowerCase().includes(s)));
+  r.sort((a, b) => (typeof a[sortK] === 'string' ? String(a[sortK]).localeCompare(String(b[sortK])) : a[sortK] - b[sortK]) * sortD);
+  const mx = d3.max(r, x => Math.min(x.yoy, 5)) || 1, tb = d3.select('#tbl tbody'); tb.selectAll('tr').remove();
+  r.forEach(x => {
+    const tr = tb.append('tr'); nameCell(tr, x);
+    tr.append('td').attr('class', 't hide').text(x.quarter);
+    tr.append('td').text(pct(x.yoy)).append('span').attr('class', 'bar').style('width', (Math.min(x.yoy, 5) / mx * 50) + 'px');
+    tr.append('td').text(pct(x.qoq));
+    tr.append('td').text(num(x.eps_latest));
+    tr.append('td').attr('class', x.above_ema21 === '1' ? 'up' : x.above_ema21 === '0' ? 'down' : '').text(emaText(x));
+    tr.append('td').attr('class', 'hide').text(x.mcap_cr ? cnt(Math.round(x.mcap_cr)) : '—');
+    tr.append('td').attr('class', 't hide').text(x.result_date || '—');
+    tr.append('td').attr('class', 'hide').text(num(x.eps_prev));
+    tr.append('td').attr('class', 'hide').text(num(x.eps_yearago));
+  });
+  const sel = document.getElementById('qs'), cur = sel.value, qs = [...new Set(rows.map(x => x.quarter))].sort().reverse();
+  sel.replaceChildren(new Option('All quarters', ''), ...qs.map(q => new Option(q, q))); sel.value = cur;
+}
+function drawStatus() {
+  const live = document.getElementById('live'), st = document.getElementById('st'), L = status.last;
+  live.classList.toggle('run', !!status.running);
+  live.classList.toggle('err', !status.running && L && L.ok === false);
+  st.textContent = status.running ? `Checking now · ${status.step}` : L && L.ok === false ? 'Last check failed: see Refresh log' : 'Live';
+  document.getElementById('last').textContent = L && L.finished ? `· Last check ${ago(L.finished)} (BSE ${L.bse ?? 0}, NSE ${L.nse ?? 0} filings)` : '· No check finished yet';
+  const nx = status.next_at ? Math.max(0, Math.round((new Date(status.next_at) - Date.now()) / 6e4)) : null;
+  document.getElementById('next').textContent = !status.running && nx !== null ? `· Next in ${nx} min` : '';
+    const ul = document.getElementById('log'); ul.textContent = '';
+  (status.history || []).slice(0, 12).forEach(h => {
+    const li = document.createElement('li');
+    const t = h.finished ? new Date(h.finished).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    li.textContent = `${t}: BSE ${h.bse}, NSE ${h.nse} filings; checked ${h.checked}; +${h.added.length} new, ${h.updated.length} updated, −${h.dropped.length} dropped`
+      + (h.added.length ? ` (${h.added.slice(0, 4).join(', ')})` : '') + (h.errors.length ? ` · ${h.errors.length} errors: ${h.errors[0].slice(0, 140)}` : '');
+    if (h.errors.length && !h.ok) li.style.color = css('--bad');
+    ul.appendChild(li);
+  });
+  if (!ul.children.length) { const li = document.createElement('li'); li.textContent = 'First check is running…'; ul.appendChild(li); }
+}
+
+// ---------- data loop ----------
+function notify(added) {
+  if (!added.length || !('Notification' in window) || Notification.permission !== 'granted') return;
+  new Notification(`${added.length} new in EPS 20%+ screen`, { body: added.slice(0, 5).map(r => `${r.company}: YoY ${pct(r.yoy)}, QoQ ${pct(r.qoq)}`).join('\n') });
+}
+async function load() {
+  try {
+    const d = await (await fetch('screen.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    status = d.status || {};
+    rows = d.rows.map(x => ({ ...x, yoy: +x.yoy, qoq: +x.qoq, eps_latest: +x.eps_latest, eps_prev: +x.eps_prev, eps_yearago: +x.eps_yearago,
+      mcap_cr: x.mcap_cr === '' || x.mcap_cr == null ? 0 : +x.mcap_cr, result_date: x.result_date || '', above_ema21: String(x.above_ema21 ?? '') }));
+    const ids = new Set(rows.map(r => (r.symbol || r.company) + '|' + r.updated_at));
+    const fresh = new Set();
+    if (known) rows.forEach(r => { if (!known.has((r.symbol || r.company) + '|' + r.updated_at)) fresh.add(r.symbol || r.company); });
+    if (known && fresh.size) notify(rows.filter(r => fresh.has(r.symbol || r.company)));
+    known = ids;
+    drawKpis(); drawFeed(fresh); drawTop(); drawScatter(); drawBands(); drawTable(); drawStatus();
+  } catch (e) {
+    document.getElementById('live').classList.add('err');
+    document.getElementById('st').textContent = 'Could not load the latest data. Retrying in a minute.';
+  }
+}
+document.querySelectorAll('#tbl th').forEach(th => th.addEventListener('click', () => {
+  const k = th.dataset.k; sortD = sortK === k ? -sortD : (['company', 'quarter', 'result_date'].includes(k) ? 1 : -1); sortK = k; drawTable();
+}));
+['q', 'ef', 'qs'].forEach(id => document.getElementById(id).addEventListener(id === 'q' ? 'input' : 'change', drawTable));
+document.getElementById('bf').addEventListener('change', drawBands);
+const nb = document.getElementById('notif');
+if ('Notification' in window && Notification.permission === 'default') {
+  nb.hidden = false; nb.addEventListener('click', () => Notification.requestPermission().then(() => nb.hidden = true));
+}
+let rw; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => { drawTop(); drawScatter(); drawBands(); }, 150); });
+load(); setInterval(load, 60000);
+</script>
+</body>
+</html>
