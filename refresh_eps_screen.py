@@ -305,9 +305,24 @@ def to_rows(src):
     return {key_of(r): {c: r.get(c, "") for c in COLS} for r in src}
 
 
+def _same_company(r):
+    # Name as Screener spells it, minus any " (NSE:XYZ)" suffix added for uniqueness
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"\s*\((NSE|BSE|NAME):[^)]*\)$", "", r["company"]).lower()
+                  .replace("limited", "ltd").replace("&", "and"))
+
+
 def to_list(rows):
+    # One row per company: a company seen under both its NSE symbol and BSE code keeps the newer row
+    best = {}
+    for k, r in rows.items():
+        n = _same_company(r)
+        if n not in best or (r.get("updated_at") or "") > (best[n][1].get("updated_at") or ""):
+            best[n] = (k, r)
+    for k in [k for k in rows if (k, rows[k]) not in best.values()]:
+        del rows[k]
     seen, out = set(), []
     for r in sorted(rows.values(), key=lambda r: -float(r["yoy"] or 0)):
+        r["company"] = re.sub(r"\s*\((NSE|BSE|NAME):[^)]*\)$", "", r["company"])
         if r["company"] in seen:   # company name is the table's row key: keep it unique
             r["company"] = f"{r['company']} ({r['symbol']})"
         seen.add(r["company"]); out.append(r)
